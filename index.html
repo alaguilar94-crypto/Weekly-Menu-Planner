@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Weekly Meal Planner</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Palatino Linotype', 'Book Antiqua', Palatino, serif; min-height: 100vh; background: #F7F2EA; color: #1E120A; }
+  button:hover { opacity: 0.85; }
+
+  @keyframes fadeIn { from { opacity:0; transform:translateX(-50%) translateY(-8px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }
+  @keyframes modalIn { from { opacity:0; transform:scale(0.95) translateY(10px); } to { opacity:1; transform:scale(1) translateY(0); } }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  #toast { display:none; position:fixed; top:20px; left:50%; transform:translateX(-50%); background:#2C1810; color:#F5E6D3; padding:0.7rem 1.5rem; border-radius:30px; z-index:9999; font-size:0.9rem; box-shadow:0 4px 20px rgba(0,0,0,0.3); animation:fadeIn 0.2s ease; white-space:nowrap; }
+
+  /* Sync indicator */
+  #sync-bar { display:flex; align-items:center; justify-content:center; gap:0.5rem; padding:0.4rem 1rem; background:rgba(200,160,100,0.12); border-bottom:1px solid rgba(200,160,100,0.2); font-size:0.75rem; font-family:sans-serif; color:#C8A060; }
+  #sync-dot { width:8px; height:8px; border-radius:50%; background:#C8A060; flex-shrink:0; }
+  #sync-dot.syncing { animation:pulse 1s infinite; background:#E8A030; }
+  #sync-dot.connected { background:#5A9A50; }
+  #sync-dot.error { background:#C84030; }
+  #sync-bar.connected { color:#5A7848; background:rgba(90,154,80,0.08); border-bottom-color:rgba(90,154,80,0.2); }
+  #sync-bar.error { color:#904030; background:rgba(200,60,48,0.07); border-bottom-color:rgba(200,60,48,0.15); }
+
+  .modal-overlay { display:none; position:fixed; inset:0; background:rgba(20,10,5,0.6); z-index:1000; align-items:center; justify-content:center; padding:1rem; }
+  .modal-overlay.open { display:flex; }
+  .modal { background:#FAF6F0; border-radius:20px; padding:2rem; width:100%; max-width:460px; box-shadow:0 20px 60px rgba(0,0,0,0.35); animation:modalIn 0.2s ease; }
+  .modal h2 { font-weight:normal; font-size:1.4rem; color:#2C1810; margin-bottom:0.3rem; }
+  .modal-sub { font-size:0.8rem; color:#9A7858; font-family:sans-serif; margin-bottom:1.5rem; }
+  .form-group { margin-bottom:1rem; }
+  .form-label { display:block; font-size:0.75rem; color:#6A4828; font-family:sans-serif; text-transform:uppercase; letter-spacing:0.07em; margin-bottom:0.35rem; }
+  .form-input, .form-select { width:100%; padding:0.65rem 0.9rem; border:1.5px solid #D8C8A8; border-radius:10px; background:#fff; font-family:inherit; font-size:0.95rem; color:#1E120A; transition:border-color 0.2s; outline:none; }
+  .form-input:focus, .form-select:focus { border-color:#C8A060; }
+  .form-row { display:grid; grid-template-columns:1fr 1fr; gap:0.75rem; }
+  .modal-actions { display:flex; gap:0.75rem; margin-top:1.5rem; }
+  .btn-primary { flex:1; background:linear-gradient(135deg,#5A2E12,#3D2010); color:#F5E6D3; border:none; padding:0.75rem; border-radius:10px; font-size:0.95rem; cursor:pointer; font-family:inherit; }
+  .btn-secondary { background:#F0E8D8; color:#5A3820; border:none; padding:0.75rem 1.25rem; border-radius:10px; font-size:0.9rem; cursor:pointer; font-family:sans-serif; }
+
+  header { background:linear-gradient(160deg,#1E120A 0%,#3D2010 55%,#5A3020 100%); padding:2.5rem 1.5rem 2rem; text-align:center; position:relative; overflow:hidden; }
+  header::before { content:''; position:absolute; inset:0; background-image:radial-gradient(circle at 20% 80%,rgba(200,160,100,0.08) 0%,transparent 50%),radial-gradient(circle at 80% 20%,rgba(200,140,80,0.06) 0%,transparent 50%); }
+  header > div { position:relative; }
+  h1 { font-weight:normal; font-size:clamp(1.7rem,5vw,2.8rem); color:#F0DFC0; letter-spacing:0.04em; text-shadow:0 2px 12px rgba(0,0,0,0.4); }
+  .subtitle { color:#A88050; margin-top:0.4rem; font-style:italic; font-size:0.95rem; }
+  #memory-badge { display:none; margin-top:0.8rem; background:rgba(200,160,100,0.15); border-radius:20px; padding:4px 14px; border:1px solid rgba(200,160,100,0.25); color:#C8A060; font-family:sans-serif; font-size:0.75rem; }
+
+  .container { max-width:860px; margin:0 auto; padding:1.5rem 1rem 3rem; }
+  .stats-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:0.75rem; margin-bottom:1.75rem; }
+  .stat-card { background:#fff; border:1px solid #E8D8C0; border-radius:12px; padding:0.85rem 0.5rem; text-align:center; box-shadow:0 2px 8px rgba(30,18,10,0.05); }
+  .stat-icon { font-size:1.2rem; margin-bottom:2px; }
+  .stat-value { font-size:1.1rem; font-weight:bold; color:#3D2010; }
+  .stat-label { font-size:0.65rem; color:#9A7858; font-family:sans-serif; text-transform:uppercase; letter-spacing:0.07em; }
+
+  .meal-cards { display:flex; flex-direction:column; gap:0.85rem; margin-bottom:1.25rem; }
+  .meal-card { background:#fff; border:1px solid #EAD8C0; border-radius:14px; padding:1.1rem 1.3rem; display:flex; align-items:center; gap:1rem; box-shadow:0 2px 10px rgba(30,18,10,0.05); transition:box-shadow 0.2s,border-color 0.2s; flex-wrap:wrap; position:relative; }
+  .meal-card.locked { border-color:#C8A060; box-shadow:0 4px 18px rgba(107,55,20,0.14); }
+  .recent-tag { position:absolute; top:8px; right:12px; font-size:0.65rem; color:#B07030; font-family:sans-serif; opacity:0.7; }
+  .day-col { text-align:center; min-width:80px; }
+  .day-label { font-size:0.6rem; text-transform:uppercase; letter-spacing:0.12em; color:#9A7858; font-family:sans-serif; margin-bottom:3px; }
+  .day-emoji { font-size:2rem; }
+  .meal-info { flex:1; min-width:170px; }
+  .meal-name { font-size:1.1rem; color:#1E120A; margin-bottom:0.3rem; line-height:1.3; }
+  .tags { display:flex; gap:0.4rem; flex-wrap:wrap; }
+  .tag { border-radius:20px; padding:2px 10px; font-size:0.7rem; font-family:sans-serif; }
+  .lock-btn { border:none; border-radius:8px; padding:0.4rem 0.8rem; cursor:pointer; font-size:0.8rem; font-family:sans-serif; font-weight:500; transition:all 0.2s; white-space:nowrap; }
+
+  .action-row { display:flex; gap:0.75rem; justify-content:center; flex-wrap:wrap; margin-bottom:2rem; }
+  .btn-shuffle { background:linear-gradient(135deg,#5A2E12,#3D2010); color:#F5E6D3; border:none; padding:0.8rem 2rem; border-radius:50px; font-size:0.95rem; cursor:pointer; font-family:inherit; letter-spacing:0.04em; box-shadow:0 4px 16px rgba(60,30,10,0.25); transition:all 0.2s; }
+  .btn-save { background:#fff; color:#3D2010; border:2px solid #C8A060; padding:0.8rem 1.8rem; border-radius:50px; font-size:0.95rem; cursor:pointer; font-family:inherit; letter-spacing:0.04em; transition:all 0.2s; }
+  .btn-save.saved { background:#E8EDE0; color:#5A7A3A; border-color:#8AB060; cursor:default; }
+  .btn-add-meal { background:#fff; color:#2A6A45; border:2px solid #2A6A45; padding:0.8rem 1.8rem; border-radius:50px; font-size:0.95rem; cursor:pointer; font-family:inherit; transition:all 0.2s; }
+
+  .panel { background:#fff; border:1px solid #EAD8C0; border-radius:16px; margin-bottom:1rem; box-shadow:0 2px 10px rgba(30,18,10,0.05); overflow:hidden; }
+  .panel-toggle { width:100%; background:none; border:none; padding:1rem 1.4rem; display:flex; justify-content:space-between; align-items:center; cursor:pointer; font-family:inherit; font-size:0.95rem; color:#1E120A; }
+  .panel-body { display:none; padding:0 1.4rem 1.4rem; }
+  .panel-body.open { display:block; }
+
+  .cat-filters { display:flex; gap:0.4rem; flex-wrap:wrap; margin-bottom:1rem; }
+  .cat-btn { border-radius:20px; padding:4px 14px; font-size:0.72rem; cursor:pointer; font-family:sans-serif; border:1px solid; transition:all 0.15s; }
+
+  .browse-grid { display:grid; gap:0.5rem; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); }
+  .browse-item { background:#FAFAF7; border:1px solid #EAD8C0; border-radius:10px; padding:0.6rem 0.85rem; display:flex; align-items:flex-start; justify-content:space-between; gap:0.4rem; }
+  .browse-item.in-menu { background:#FEF5E8; border-color:#C8A060; }
+  .browse-item.recent-item { background:#F8F4EE; }
+  .browse-item.custom-item { border-style:dashed; }
+  .browse-name { font-size:0.83rem; color:#1E120A; line-height:1.3; margin-bottom:2px; }
+  .browse-time { font-size:0.68rem; font-family:sans-serif; }
+  .browse-actions { display:flex; flex-direction:column; gap:0.3rem; align-items:flex-end; flex-shrink:0; }
+  .swap-select { font-size:0.68rem; padding:3px 5px; border-radius:6px; border:1px solid #C8A060; background:#FFF8F0; color:#5A3820; cursor:pointer; font-family:sans-serif; }
+  .edit-time-btn { background:none; border:1px solid #D0C0A0; border-radius:6px; padding:2px 7px; font-size:0.68rem; color:#8A6840; cursor:pointer; font-family:sans-serif; white-space:nowrap; }
+  .edit-time-btn:hover { background:#F5EDE0; opacity:1; }
+  .delete-btn { background:none; border:1px solid #E0B0A0; border-radius:6px; padding:2px 7px; font-size:0.68rem; color:#A05040; cursor:pointer; font-family:sans-serif; }
+  .delete-btn:hover { background:#FDE8E5; opacity:1; }
+  .time-edit-row { display:flex; align-items:center; gap:0.35rem; margin-top:3px; }
+  .time-input { width:55px; padding:2px 6px; border:1.5px solid #C8A060; border-radius:6px; font-size:0.8rem; font-family:sans-serif; background:#FFF8F0; color:#1E120A; outline:none; }
+  .time-save-btn { background:#C8A060; color:#fff; border:none; border-radius:6px; padding:2px 8px; font-size:0.72rem; cursor:pointer; font-family:sans-serif; }
+  .time-cancel-btn { background:#F0E8D8; color:#5A3820; border:none; border-radius:6px; padding:2px 8px; font-size:0.72rem; cursor:pointer; font-family:sans-serif; }
+
+  .history-week { margin-bottom:1rem; }
+  .history-label { font-size:0.7rem; text-transform:uppercase; letter-spacing:0.1em; color:#9A7858; font-family:sans-serif; margin-bottom:0.4rem; }
+  .history-tags { display:flex; flex-wrap:wrap; gap:0.4rem; }
+  .history-tag { border-radius:20px; padding:3px 12px; font-size:0.75rem; font-family:sans-serif; }
+  .btn-clear { background:none; border:1px solid #E0C8B0; color:#9A6858; border-radius:8px; padding:0.4rem 1rem; cursor:pointer; font-size:0.78rem; font-family:sans-serif; margin-top:0.5rem; }
+  .footer-note { text-align:center; font-size:0.7rem; color:#B8A888; margin-top:2rem; font-family:sans-serif; }
+  .custom-badge { display:inline-block; background:#2A6A4518; color:#2A6A45; border:1px solid #2A6A4535; border-radius:10px; padding:1px 7px; font-size:0.63rem; font-family:sans-serif; margin-left:4px; vertical-align:middle; }
+
+  @media (max-width:500px) { .stats-grid { grid-template-columns:repeat(2,1fr); } .form-row { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+
+<div id="toast"></div>
+
+<!-- Sync Status Bar -->
+<div id="sync-bar">
+  <div id="sync-dot" class="syncing"></div>
+  <span id="sync-text">Connecting to sync…</span>
+</div>
+
+<!-- Add Meal Modal -->
+<div class="modal-overlay" id="add-modal" onclick="handleOverlayClick(event)">
+  <div class="modal">
+    <h2>➕ Add a New Meal</h2>
+    <p class="modal-sub">Custom meals are saved and shared across all devices.</p>
+    <div class="form-group">
+      <label class="form-label">Meal Name</label>
+      <input class="form-input" id="new-meal-name" type="text" placeholder="e.g. Shrimp Tacos" maxlength="60"
+        onkeydown="if(event.key==='Enter')addMeal()"/>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Category</label>
+        <select class="form-select" id="new-meal-cat">
+          <option value="Beef">🥩 Beef</option>
+          <option value="Chicken">🍗 Chicken</option>
+          <option value="Pasta">🍝 Pasta</option>
+          <option value="Pork">🥓 Pork</option>
+          <option value="Seafood">🐟 Seafood</option>
+          <option value="Soups &amp; Stews">🍲 Soups &amp; Stews</option>
+          <option value="Vegetarian">🥦 Vegetarian</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Cook Time (minutes)</label>
+        <input class="form-input" id="new-meal-time" type="number" min="1" max="300" placeholder="45"
+          onkeydown="if(event.key==='Enter')addMeal()"/>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn-primary" onclick="addMeal()">Add to My Meals</button>
+    </div>
+  </div>
+</div>
+
+<header>
+  <div>
+    <div style="font-size:2.4rem;margin-bottom:0.4rem">🍽️</div>
+    <h1>Weekly Meal Planner</h1>
+    <p class="subtitle">Monday – Thursday · Four dinners, perfectly picked</p>
+    <div id="memory-badge">🧠 <span id="memory-count">0</span> recently used meals being avoided</div>
+  </div>
+</header>
+
+<div class="container">
+  <div class="stats-grid">
+    <div class="stat-card"><div class="stat-icon">⏱</div><div class="stat-value" id="stat-total">—</div><div class="stat-label">Total Time</div></div>
+    <div class="stat-card"><div class="stat-icon">🕐</div><div class="stat-value" id="stat-avg">—</div><div class="stat-label">Avg / Night</div></div>
+    <div class="stat-card"><div class="stat-icon">🥩</div><div class="stat-value" id="stat-meat">—</div><div class="stat-label">Meat Nights</div></div>
+    <div class="stat-card"><div class="stat-icon">⚡</div><div class="stat-value" id="stat-quick">—</div><div class="stat-label">Quick Meals</div></div>
+  </div>
+
+  <div class="meal-cards" id="meal-cards"></div>
+
+  <div class="action-row">
+    <button class="btn-shuffle" id="btn-shuffle" onclick="reroll()">🎲 Shuffle Unlocked</button>
+    <button class="btn-save" id="btn-save" onclick="saveWeek()">💾 Save This Week</button>
+    <button class="btn-add-meal" onclick="openModal()">➕ Add a Meal</button>
+  </div>
+
+  <div class="panel">
+    <button class="panel-toggle" onclick="togglePanel('history-body','history-arrow')">
+      <span>🧠 Recent History <span id="history-subtitle" style="font-size:0.75rem;color:#9A7858;font-family:sans-serif"></span></span>
+      <span id="history-arrow">▼</span>
+    </button>
+    <div class="panel-body" id="history-body"><div id="history-content"></div></div>
+  </div>
+
+  <div class="panel">
+    <button class="panel-toggle" onclick="togglePanel('browse-body','browse-arrow')">
+      <span>📖 Browse, Edit &amp; Swap Meals</span>
+      <span id="browse-arrow">▼</span>
+    </button>
+    <div class="panel-body" id="browse-body">
+      <div class="cat-filters" id="cat-filters"></div>
+      <div class="browse-grid" id="browse-grid"></div>
+    </div>
+  </div>
+
+  <p class="footer-note">Beef &amp; Pork max 2 nights · No back-to-back meat · Recently used meals avoided for up to 6 weeks · Synced across devices ☁️</p>
+</div>
+
+<script>
+// ── Supabase config ────────────────────────────────────
+const SUPABASE_URL = 'https://rgockqcgvnhaynxtzluj.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJnb2NrcWNndm5oYXlueHR6bHVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxNzUwNzgsImV4cCI6MjA4ODc1MTA3OH0.1xBUFhketttPzpvJ6wQpuyz3EUw0w9XBLJ9UBEjUkH4';
+const { createClient } = supabase;
+const db = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ── Constants ──────────────────────────────────────────
+const DAYS      = ["Monday","Tuesday","Wednesday","Thursday"];
+const MAX_HIST  = 6;
+const MEAT_CATS = ["Beef","Pork"];
+const CAT_COLORS = {"Beef":"#8B2500","Chicken":"#B87020","Pasta":"#9A6B00","Pork":"#7A3520","Seafood":"#1A6B7A","Soups & Stews":"#4A6A3A","Vegetarian":"#2A6A45"};
+const CAT_EMOJI  = {"Beef":"🥩","Chicken":"🍗","Pasta":"🍝","Pork":"🥓","Seafood":"🐟","Soups & Stews":"🍲","Vegetarian":"🥦"};
+
+const BASE_MEALS = {
+  "Beef":[{name:"Beef Biriyani",time:75},{name:"Cornbread Casserole",time:55},{name:"Swedish Meatballs",time:45},{name:"Mongolian Meatballs",time:40},{name:"Cheesesteak Sloppy Joe's",time:30},{name:"Chilli with Black Beans",time:60},{name:"Steak",time:25},{name:"Burgers",time:20}],
+  "Chicken":[{name:"Chicken Tikka Masala",time:50},{name:"Chicken Parmesan",time:45},{name:"Chicken Francese",time:35},{name:"Chicken & Green Bean Casserole",time:55},{name:"Chicken Broccoli & Cheese Casserole",time:50},{name:"Baked/Roasted Chicken",time:70},{name:"Power Bowl",time:25},{name:"Stuffed Poblano",time:50}],
+  "Pasta":[{name:"Alfredo",time:25},{name:"Baked Ziti",time:50},{name:"Carbonara",time:25},{name:"Jumbo Stuffed Noodles",time:65},{name:"Lasagna",time:75},{name:"Spaghetti",time:30},{name:"Ravioli",time:25}],
+  "Pork":[{name:"Cuban Sandwiches",time:40},{name:"Country Sausage & Potatoes",time:35},{name:"Marinated Teriyaki Kabobs",time:45},{name:"Honey Glazed Pork Belly",time:90}],
+  "Seafood":[{name:"Gumbo",time:70},{name:"Salmon Patties",time:20},{name:"Baked Salmon",time:25},{name:"Baked Lobster",time:35}],
+  "Soups & Stews":[{name:"Butternut Squash Soup",time:45},{name:"Chicken Noodle",time:40},{name:"Chicken Tortilla",time:35},{name:"Minestrone w/ Italian Sausage",time:50},{name:"Sausage and Lentil",time:55},{name:"Tortellini Soup",time:30},{name:"Avgolemono",time:45},{name:"Matzah Ball Soup",time:60},{name:"Stew",time:70},{name:"Beef Tips",time:65}],
+  "Vegetarian":[{name:"Curry Lentils",time:35},{name:"Dal Lentils",time:40},{name:"Marry Me Butter Beans",time:30},{name:"Saag Paneer",time:40},{name:"Eggplant Parmesan",time:55}]
+};
+
+// ── App state ──────────────────────────────────────────
+let timeOverrides = {};
+let customMeals   = {};
+let ALL_MEALS     = {};
+let menu          = [];
+let locked        = [false,false,false,false];
+let history       = [];
+let savedThisWeek = false;
+let filterCat     = null;
+let editingTimeFor= null;
+let isSyncing     = false;
+let syncDebounce  = null;
+
+// ── Supabase sync ──────────────────────────────────────
+function setSyncStatus(status, text) {
+  const bar  = document.getElementById('sync-bar');
+  const dot  = document.getElementById('sync-dot');
+  const txt  = document.getElementById('sync-text');
+  dot.className = status;
+  bar.className = status === 'connected' ? 'connected' : status === 'error' ? 'error' : '';
+  txt.textContent = text;
+}
+
+async function loadFromSupabase() {
+  setSyncStatus('syncing','Syncing…');
+  const { data, error } = await db.from('meal_planner_state').select('*').eq('id','shared').single();
+  if (error) { setSyncStatus('error','Sync error — working offline'); return false; }
+  applyRemoteState(data);
+  setSyncStatus('connected','Synced ✓');
+  return true;
+}
+
+function applyRemoteState(data) {
+  if (!data) return;
+  history       = data.history       || [];
+  customMeals   = data.custom_meals  || {};
+  timeOverrides = data.time_overrides|| {};
+  savedThisWeek = data.saved_this_week || false;
+  locked        = data.locked        || [false,false,false,false];
+  rebuildAllMeals();
+  // If remote has a real menu, use it; otherwise generate
+  const remoteMenu = data.menu || [];
+  if (remoteMenu.length === 4 && remoteMenu.every(m => m && m.name)) {
+    // Re-hydrate with current cook times
+    menu = remoteMenu.map(m => {
+      const live = flatMeals().find(f => f.name === m.name);
+      return live || m;
+    });
+  } else {
+    menu = generateMenu(null, null);
+  }
+  renderAll();
+}
+
+async function pushToSupabase() {
+  setSyncStatus('syncing','Saving…');
+  const { error } = await db.from('meal_planner_state').update({
+    menu, locked, history, custom_meals: customMeals,
+    time_overrides: timeOverrides, saved_this_week: savedThisWeek,
+    updated_at: new Date().toISOString()
+  }).eq('id','shared');
+  if (error) { setSyncStatus('error','Save failed'); return; }
+  setSyncStatus('connected','Synced ✓');
+}
+
+// Debounced push — waits 800ms after last change before saving
+function schedulePush() {
+  clearTimeout(syncDebounce);
+  setSyncStatus('syncing','Saving…');
+  syncDebounce = setTimeout(()=> pushToSupabase(), 800);
+}
+
+// Real-time listener — updates UI when partner makes changes
+function subscribeRealtime() {
+  db.channel('meal_planner_changes')
+    .on('postgres_changes', { event:'UPDATE', schema:'public', table:'meal_planner_state' }, payload => {
+      applyRemoteState(payload.new);
+      showToast('🔄 Updated from another device');
+    })
+    .subscribe(status => {
+      if (status === 'SUBSCRIBED') setSyncStatus('connected','Synced ✓');
+    });
+}
+
+// ── Meal data ──────────────────────────────────────────
+function rebuildAllMeals() {
+  ALL_MEALS = {};
+  Object.entries(BASE_MEALS).forEach(([cat,items]) => {
+    ALL_MEALS[cat] = items.map(m => ({...m, time: timeOverrides[m.name]??m.time}));
+  });
+  Object.entries(customMeals).forEach(([cat,items]) => {
+    if (!ALL_MEALS[cat]) ALL_MEALS[cat] = [];
+    items.forEach(m => ALL_MEALS[cat].push({...m, time: timeOverrides[m.name]??m.time}));
+  });
+}
+function flatMeals() {
+  return Object.entries(ALL_MEALS).flatMap(([cat,items]) => items.map(i => ({...i,category:cat})));
+}
+function isCustomMeal(name) {
+  return Object.values(customMeals).flat().some(m => m.name === name);
+}
+function recentNames() { return history.flat().map(m => m.name); }
+
+// ── Helpers ────────────────────────────────────────────
+function getTimeLabel(min) {
+  if (min<=30) return {label:"Quick",color:"#2D7A4A",bg:"#E5F5EC"};
+  if (min<=55) return {label:"Medium",color:"#8A5A10",bg:"#FEF3E2"};
+  return {label:"Long",color:"#8A2A18",bg:"#FDE8E5"};
+}
+function shuffle(arr) {
+  const a=[...arr];
+  for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}
+  return a;
+}
+function showToast(msg) {
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.style.display='block';
+  clearTimeout(t._tid); t._tid=setTimeout(()=>{ t.style.display='none'; },2800);
+}
+function esc(s){ return s.replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+function safeId(s){ return s.replace(/[^a-z0-9]/gi,'_'); }
+
+// ── Menu generation ────────────────────────────────────
+function generateMenu(existingMenu, lockedArr) {
+  const all=flatMeals(), recent=recentNames();
+  const pool=[...shuffle(all.filter(m=>!recent.includes(m.name))),...shuffle(all.filter(m=>recent.includes(m.name)))];
+  const result=existingMenu?[...existingMenu]:[null,null,null,null];
+  let meatCount=result.filter((m,i)=>m&&MEAT_CATS.includes(m.category)&&(lockedArr||[])[i]).length;
+  for(let i=0;i<4;i++){
+    if(lockedArr&&lockedArr[i]&&result[i]) continue;
+    for(const meal of pool){
+      if(result.some((m,idx)=>idx!==i&&m&&m.name===meal.name)) continue;
+      const isMeat=MEAT_CATS.includes(meal.category);
+      const prevMeat=i>0&&result[i-1]&&MEAT_CATS.includes(result[i-1].category);
+      const nextMeat=i<3&&result[i+1]&&MEAT_CATS.includes(result[i+1].category);
+      if(isMeat&&meatCount>=2) continue;
+      if(isMeat&&(prevMeat||nextMeat)) continue;
+      result[i]=meal; if(isMeat)meatCount++; break;
+    }
+  }
+  for(let i=0;i<4;i++){
+    if(!result[i]) for(const meal of pool){ if(!result.some((m,idx)=>idx!==i&&m&&m.name===meal.name)){ result[i]=meal; break; } }
+  }
+  return result;
+}
+
+// ── Modal ──────────────────────────────────────────────
+function openModal() {
+  document.getElementById('new-meal-name').value='';
+  document.getElementById('new-meal-time').value='';
+  document.getElementById('add-modal').classList.add('open');
+  setTimeout(()=>document.getElementById('new-meal-name').focus(),80);
+}
+function closeModal() { document.getElementById('add-modal').classList.remove('open'); }
+function handleOverlayClick(e){ if(e.target===document.getElementById('add-modal')) closeModal(); }
+
+function addMeal() {
+  const name=document.getElementById('new-meal-name').value.trim();
+  const cat =document.getElementById('new-meal-cat').value;
+  const time=parseInt(document.getElementById('new-meal-time').value);
+  if(!name){ showToast('⚠️ Please enter a meal name.'); return; }
+  if(!time||time<1){ showToast('⚠️ Please enter a valid cook time.'); return; }
+  if(flatMeals().some(m=>m.name.toLowerCase()===name.toLowerCase())){ showToast('⚠️ That meal already exists.'); return; }
+  if(!customMeals[cat]) customMeals[cat]=[];
+  customMeals[cat].push({name,time,custom:true});
+  rebuildAllMeals(); closeModal(); renderAll();
+  schedulePush();
+  showToast(`✅ "${name}" added to ${cat}!`);
+}
+
+// ── Cook time edit ─────────────────────────────────────
+function startTimeEdit(n){ editingTimeFor=n; renderBrowseGrid(); }
+function cancelTimeEdit(){ editingTimeFor=null; renderBrowseGrid(); }
+function saveTimeEdit(mealName) {
+  const el=document.getElementById('time-edit-'+safeId(mealName));
+  const val=parseInt(el&&el.value);
+  if(!val||val<1||val>300){ showToast('⚠️ Enter a time between 1–300 minutes.'); return; }
+  timeOverrides[mealName]=val;
+  rebuildAllMeals();
+  menu=menu.map(m=>m.name===mealName?{...m,time:val}:m);
+  editingTimeFor=null; renderAll();
+  schedulePush();
+  showToast(`✏️ "${mealName}" updated to ${val} min`);
+}
+function deleteMeal(mealName) {
+  if(!confirm(`Remove "${mealName}"?`)) return;
+  Object.keys(customMeals).forEach(cat=>{
+    customMeals[cat]=customMeals[cat].filter(m=>m.name!==mealName);
+    if(!customMeals[cat].length) delete customMeals[cat];
+  });
+  rebuildAllMeals();
+  if(menu.some(m=>m.name===mealName)){ menu=generateMenu(null,null); locked=[false,false,false,false]; }
+  renderAll(); schedulePush();
+  showToast(`🗑 "${mealName}" removed.`);
+}
+
+// ── Panels ─────────────────────────────────────────────
+function togglePanel(bodyId,arrowId){
+  const body=document.getElementById(bodyId), arrow=document.getElementById(arrowId);
+  const open=body.classList.toggle('open');
+  arrow.textContent=open?'▲':'▼';
+  if(open&&bodyId==='browse-body') renderBrowse();
+  if(open&&bodyId==='history-body') renderHistory();
+}
+
+// ── Render ─────────────────────────────────────────────
+function renderStats(){
+  const total=menu.reduce((s,m)=>s+m.time,0);
+  document.getElementById('stat-total').textContent=`~${total}m`;
+  document.getElementById('stat-avg').textContent=`~${Math.round(total/4)}m`;
+  document.getElementById('stat-meat').textContent=`${menu.filter(m=>MEAT_CATS.includes(m.category)).length} of 4`;
+  document.getElementById('stat-quick').textContent=menu.filter(m=>m.time<=30).length;
+}
+function renderMemoryBadge(){
+  const n=recentNames().length;
+  document.getElementById('memory-badge').style.display=n>0?'inline-block':'none';
+  document.getElementById('memory-count').textContent=n;
+}
+function renderCards(){
+  const container=document.getElementById('meal-cards');
+  container.innerHTML='';
+  const recent=recentNames();
+  menu.forEach((meal,i)=>{
+    const tl=getTimeLabel(meal.time), isLocked=locked[i], col=CAT_COLORS[meal.category]||'#888';
+    const card=document.createElement('div');
+    card.className='meal-card'+(isLocked?' locked':'');
+    card.style.borderLeft=`6px solid ${col}`;
+    card.innerHTML=`
+      ${recent.includes(meal.name)&&!isLocked?`<div class="recent-tag">recently used</div>`:''}
+      <div class="day-col"><div class="day-label">${DAYS[i]}</div><div class="day-emoji">${CAT_EMOJI[meal.category]||'🍽️'}</div></div>
+      <div class="meal-info">
+        <div class="meal-name">${meal.name}${isCustomMeal(meal.name)?'<span class="custom-badge">custom</span>':''}</div>
+        <div class="tags">
+          <span class="tag" style="background:${col}18;color:${col};border:1px solid ${col}35;font-weight:600">${meal.category}</span>
+          <span class="tag" style="background:${tl.bg};color:${tl.color};border:1px solid ${tl.color}30">⏱ ${meal.time} min · ${tl.label}</span>
+        </div>
+      </div>
+      <button class="lock-btn" style="background:${isLocked?'#C8A060':'#F5EDE0'};color:${isLocked?'#fff':'#8A6840'}"
+        onclick="toggleLock(${i})">${isLocked?'🔒 Locked':'🔓 Lock'}</button>`;
+    container.appendChild(card);
+  });
+}
+function toggleLock(i){ locked[i]=!locked[i]; renderCards(); schedulePush(); }
+
+function renderCatFilters(){
+  let html=`<button class="cat-btn" style="background:${!filterCat?'#3D2010':'#F5EDE0'};color:${!filterCat?'#F5E6D3':'#5A3820'};border-color:#C8A060" onclick="setFilter(null)">All</button>`;
+  Object.keys(ALL_MEALS).forEach(cat=>{
+    const col=CAT_COLORS[cat]||'#888', active=filterCat===cat;
+    html+=`<button class="cat-btn" style="background:${active?col:'#F5EDE0'};color:${active?'#fff':col};border-color:${col}50" onclick="setFilter('${esc(cat)}')">${CAT_EMOJI[cat]||''} ${cat}</button>`;
+  });
+  document.getElementById('cat-filters').innerHTML=html;
+}
+function setFilter(cat){ filterCat=cat; renderCatFilters(); renderBrowseGrid(); }
+function renderBrowse(){ renderCatFilters(); renderBrowseGrid(); }
+function renderBrowseGrid(){
+  const recent=recentNames();
+  const list=Object.entries(ALL_MEALS).filter(([cat])=>!filterCat||cat===filterCat).flatMap(([cat,items])=>items.map(i=>({...i,category:cat})));
+  if(!list.length){ document.getElementById('browse-grid').innerHTML='<p style="color:#9A7858;font-size:0.85rem;font-family:sans-serif">No meals here yet.</p>'; return; }
+  let html='';
+  list.forEach(meal=>{
+    const inMenu=menu.some(m=>m.name===meal.name), isRecent=recent.includes(meal.name);
+    const tl=getTimeLabel(meal.time), custom=isCustomMeal(meal.name);
+    const cls=(inMenu?'in-menu':isRecent?'recent-item':'')+(custom?' custom-item':'');
+    const isEditing=editingTimeFor===meal.name, hasOverride=timeOverrides[meal.name]!==undefined;
+    const sid=safeId(meal.name), en=esc(meal.name);
+    const timeSection=isEditing
+      ?`<div class="time-edit-row"><input class="time-input" id="time-edit-${sid}" type="number" min="1" max="300" value="${meal.time}" onkeydown="if(event.key==='Enter')saveTimeEdit('${en}');if(event.key==='Escape')cancelTimeEdit()"/><button class="time-save-btn" onclick="saveTimeEdit('${en}')">✓</button><button class="time-cancel-btn" onclick="cancelTimeEdit()">✕</button></div>`
+      :`<div class="browse-time" style="color:${tl.color}">⏱ ${meal.time}m · ${tl.label}${hasOverride?' ✏️':''}</div>`;
+    const swapSelect=!inMenu?`<select class="swap-select" onchange="swapMeal(parseInt(this.value),'${en}');this.value=''"><option value="" disabled selected>Add to…</option>${DAYS.map((d,i)=>`<option value="${i}" ${locked[i]?'disabled':''}>${d}${locked[i]?' 🔒':''}</option>`).join('')}</select>`:'';
+    html+=`<div class="browse-item ${cls}"><div style="flex:1;min-width:0"><div class="browse-name">${meal.name}${custom?'<span class="custom-badge">custom</span>':''}${inMenu?'<span style="margin-left:4px;color:#C8A060;font-size:0.68rem">✓ in plan</span>':''}${isRecent&&!inMenu?'<span style="margin-left:4px;color:#B07030;font-size:0.65rem">recent</span>':''}</div>${timeSection}</div><div class="browse-actions">${!isEditing?`<button class="edit-time-btn" onclick="startTimeEdit('${en}')">✏️ time</button>`:''}${custom&&!isEditing?`<button class="delete-btn" onclick="deleteMeal('${en}')">🗑</button>`:''}${swapSelect}</div></div>`;
+  });
+  document.getElementById('browse-grid').innerHTML=html;
+  if(editingTimeFor){ const el=document.getElementById('time-edit-'+safeId(editingTimeFor)); if(el){ el.focus(); el.select(); } }
+}
+function renderHistory(){
+  document.getElementById('history-subtitle').textContent=`(${history.length} week${history.length!==1?'s':''} tracked · up to ${MAX_HIST})`;
+  const container=document.getElementById('history-content');
+  if(!history.length){ container.innerHTML='<p style="color:#9A7858;font-size:0.85rem;font-style:italic;font-family:sans-serif">No weeks saved yet.</p>'; return; }
+  let html='';
+  history.forEach((week,wi)=>{
+    html+=`<div class="history-week"><div class="history-label">${wi===0?'Last Week':`${wi+1} Weeks Ago`}</div><div class="history-tags">`;
+    week.forEach(m=>{ const col=CAT_COLORS[m.category]||'#888'; html+=`<span class="history-tag" style="background:${col}12;color:${col};border:1px solid ${col}30">${CAT_EMOJI[m.category]||''} ${m.name}</span>`; });
+    html+='</div></div>';
+  });
+  html+=`<button class="btn-clear" onclick="clearHistory()">🗑 Clear History</button>`;
+  container.innerHTML=html;
+}
+function renderAll(){
+  renderStats(); renderCards(); renderMemoryBadge(); updateSaveBtn();
+  if(document.getElementById('browse-body').classList.contains('open')) renderBrowse();
+  if(document.getElementById('history-body').classList.contains('open')) renderHistory();
+}
+
+// ── Actions ────────────────────────────────────────────
+function reroll(){
+  const btn=document.getElementById('btn-shuffle');
+  btn.textContent='✨ Shuffling…'; btn.disabled=true;
+  setTimeout(()=>{ menu=generateMenu(menu,locked); savedThisWeek=false; renderAll(); schedulePush(); btn.textContent='🎲 Shuffle Unlocked'; btn.disabled=false; },450);
+}
+function saveWeek(){
+  if(savedThisWeek) return;
+  history=[menu,...history].slice(0,MAX_HIST);
+  savedThisWeek=true; renderAll(); schedulePush();
+  showToast("✅ Week saved! These meals won't repeat for 6 weeks.");
+}
+function updateSaveBtn(){
+  const btn=document.getElementById('btn-save');
+  btn.textContent=savedThisWeek?'✅ Week Saved':'💾 Save This Week';
+  btn.className='btn-save'+(savedThisWeek?' saved':'');
+}
+function clearHistory(){ history=[]; renderAll(); schedulePush(); showToast('🗑 History cleared.'); }
+function swapMeal(dayIndex,mealName){
+  const meal=flatMeals().find(m=>m.name===mealName);
+  if(meal){ menu[dayIndex]=meal; savedThisWeek=false; renderAll(); schedulePush(); }
+}
+
+// ── Init ───────────────────────────────────────────────
+(async () => {
+  rebuildAllMeals();
+  // Try to load from Supabase first
+  const loaded = await loadFromSupabase();
+  if (!loaded) {
+    // Fallback: generate a fresh menu offline
+    menu = generateMenu(null, null);
+    renderAll();
+  }
+  subscribeRealtime();
+})();
+
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ closeModal(); cancelTimeEdit(); } });
+</script>
+</body>
+</html>
