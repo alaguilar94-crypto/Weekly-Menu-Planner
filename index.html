@@ -2,8 +2,45 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Weekly Meal Planner</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+<title>Meal Planner</title>
+
+<!-- PWA / Home Screen Meta -->
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="Meal Planner"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="theme-color" content="#1E120A"/>
+<meta name="description" content="Weekly dinner planner for two — synced in real time"/>
+
+<!-- PWA Manifest (inline) -->
+<link rel="manifest" href="data:application/json;charset=utf-8,%7B%22name%22%3A%22Weekly%20Meal%20Planner%22%2C%22short_name%22%3A%22Meal%20Planner%22%2C%22start_url%22%3A%22.%2F%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%231E120A%22%2C%22theme_color%22%3A%22%231E120A%22%2C%22orientation%22%3A%22portrait%22%2C%22icons%22%3A%5B%7B%22src%22%3A%22data%3Aimage%2Fsvg%2Bxml%2C%253Csvg%2520xmlns%3D%2527http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%2527%2520viewBox%3D%270%200%20512%20512%2527%253E%253Crect%2520width%3D%2527512%2527%2520height%3D%2527512%2527%2520rx%3D%2527100%2527%2520fill%3D%2527%25231E120A%2527%2F%253E%253Ctext%2520x%3D%2527256%2527%2520y%3D%2527340%2527%2520font-size%3D%2527280%2527%2520text-anchor%3D%2527middle%2527%253E%25F0%259F%258D%25BD%25EF%25B8%258F%253C%2Ftext%253E%253C%2Fsvg%253E%22%2C%22sizes%22%3A%22512x512%22%2C%22type%22%3A%22image%2Fsvg%2Bxml%22%7D%5D%7D"/>
+
+<!-- Apple Touch Icon (generated via canvas) -->
+<script>
+(function(){
+  try {
+    const c=document.createElement('canvas'); c.width=c.height=180;
+    const ctx=c.getContext('2d');
+    // Background rounded rect
+    const r=36;
+    ctx.beginPath(); ctx.moveTo(r,0); ctx.lineTo(180-r,0); ctx.quadraticCurveTo(180,0,180,r);
+    ctx.lineTo(180,180-r); ctx.quadraticCurveTo(180,180,180-r,180);
+    ctx.lineTo(r,180); ctx.quadraticCurveTo(0,180,0,180-r);
+    ctx.lineTo(0,r); ctx.quadraticCurveTo(0,0,r,0); ctx.closePath();
+    const grad=ctx.createLinearGradient(0,0,180,180);
+    grad.addColorStop(0,'#1E120A'); grad.addColorStop(1,'#5A3020');
+    ctx.fillStyle=grad; ctx.fill();
+    // Emoji
+    ctx.font='100px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('🍽️',90,95);
+    const link=document.createElement('link');
+    link.rel='apple-touch-icon'; link.href=c.toDataURL('image/png');
+    document.head.appendChild(link);
+  } catch(e){}
+})();
+</script>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -107,11 +144,60 @@
   .custom-badge { display:inline-block; background:#2A6A4518; color:#2A6A45; border:1px solid #2A6A4535; border-radius:10px; padding:1px 7px; font-size:0.63rem; font-family:sans-serif; margin-left:4px; vertical-align:middle; }
 
   @media (max-width:500px) { .stats-grid { grid-template-columns:repeat(2,1fr); } .form-row { grid-template-columns:1fr; } }
+
+  /* ── iOS / PWA enhancements ── */
+  body { padding-bottom: env(safe-area-inset-bottom); }
+  header { padding-top: calc(2.5rem + env(safe-area-inset-top)); }
+
+  @media (max-width: 640px) {
+    .lock-btn { padding: 0.55rem 1rem; font-size: 0.85rem; }
+    .btn-shuffle, .btn-save, .btn-add-meal { padding: 0.9rem 1.5rem; font-size: 1rem; width: 100%; }
+    .action-row { flex-direction: column; align-items: stretch; padding: 0 0.5rem; }
+    .panel-toggle { padding: 1.1rem 1.4rem; font-size: 1rem; }
+    .meal-name { font-size: 1.15rem; }
+    .tag { font-size: 0.75rem; padding: 3px 12px; }
+    .browse-grid { grid-template-columns: 1fr; }
+    .stat-value { font-size: 1.2rem; }
+    button, select { touch-action: manipulation; }
+  }
+  @media (display-mode: standalone) { #install-banner { display: none !important; } }
+
+  #install-banner { background: linear-gradient(135deg,#3D2010,#5A3020); color:#F5E6D3; padding:0.85rem 1.2rem; font-family:sans-serif; font-size:0.82rem; border-bottom:1px solid rgba(200,160,100,0.2); }
+  #install-banner.hidden { display:none; }
+  .install-top { display:flex; align-items:center; justify-content:space-between; gap:0.75rem; }
+  .install-left { display:flex; align-items:center; gap:0.6rem; }
+  .install-icon { font-size:1.5rem; }
+  .install-title { font-weight:600; font-size:0.88rem; }
+  .install-sub { opacity:0.75; font-size:0.75rem; margin-top:1px; }
+  .install-steps { background:rgba(255,255,255,0.1); border-radius:10px; padding:0.6rem 0.85rem; font-size:0.78rem; line-height:1.8; margin-top:0.65rem; display:none; }
+  .install-steps.open { display:block; }
+  #install-banner button { background:rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.25); color:#F5E6D3; border-radius:8px; padding:0.35rem 0.85rem; cursor:pointer; font-size:0.78rem; white-space:nowrap; flex-shrink:0; }
 </style>
 </head>
 <body>
 
 <div id="toast"></div>
+
+<!-- iOS Install Banner -->
+<div id="install-banner" class="hidden">
+  <div class="install-top">
+    <div class="install-left">
+      <div class="install-icon">🍽️</div>
+      <div>
+        <div class="install-title">Add to Home Screen</div>
+        <div class="install-sub">Use like a native app, works on any device</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:0.5rem">
+      <button onclick="toggleInstallSteps()">How to ▾</button>
+      <button onclick="dismissInstallBanner()">✕</button>
+    </div>
+  </div>
+  <div class="install-steps" id="install-steps">
+    📱 <strong>iPhone/iPad:</strong> Tap the <strong>Share</strong> button (□↑) in Safari → <strong>"Add to Home Screen"</strong> → tap <strong>Add</strong><br/>
+    🤖 <strong>Android:</strong> Tap <strong>⋮ menu</strong> in Chrome → <strong>"Add to Home screen"</strong>
+  </div>
+</div>
 
 <!-- Sync Status Bar -->
 <div id="sync-bar">
@@ -556,6 +642,27 @@ function swapMeal(dayIndex,mealName){
 })();
 
 document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ closeModal(); cancelTimeEdit(); } });
+
+// ── Install banner ─────────────────────────────────────
+function showInstallBanner() {
+  // Only show in browser (not standalone), and only if not dismissed
+  const dismissed = sessionStorage.getItem('install_dismissed');
+  const isStandalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+  if (!dismissed && !isStandalone && isMobile) {
+    document.getElementById('install-banner').classList.remove('hidden');
+  }
+}
+function dismissInstallBanner() {
+  document.getElementById('install-banner').classList.add('hidden');
+  sessionStorage.setItem('install_dismissed','1');
+}
+function toggleInstallSteps() {
+  const steps = document.getElementById('install-steps');
+  steps.classList.toggle('open');
+}
+// Show banner after a short delay so it doesn't feel jarring
+setTimeout(showInstallBanner, 1500);
 </script>
 </body>
 </html>
